@@ -1,0 +1,28 @@
+a{
+	color:blue;
+	text-decoration: underline;
+	cursor: pointer;
+}
+.showAndCenter{
+	display: inline-block;
+	padding: 10px;
+	position: absolute;
+}
+.hiddenDiv{
+	display: none;
+}
+.successMessage{
+	color: green;
+}
+.errorMessage{
+	color: red;
+}
+#rooms{
+	text-align: center;
+}
+#roomsTable{
+	width: 100%;
+}
+#roomsTable th{
+	border:1px solid black;
+}
