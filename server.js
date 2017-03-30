@@ -69,6 +69,8 @@ server.listen (9000, function () {
   	console.log ('Listen on port 9000');
 });
 
+//---Databáza-----------------------------------
+
 var database = mysql.createConnection({
   	host     : 'localhost',
     user     : 'root',
@@ -76,6 +78,15 @@ var database = mysql.createConnection({
     database : 'packman'
 });
 database.connect();
+
+database.query("DELETE FROM rooms;", function (error, rows, fields) {
+    if (error) {
+        console.log(error);
+        return;
+    };
+});
+
+//----------------------------------------------
 
 function registration(req,res){
     var params={};
@@ -113,6 +124,7 @@ function registration(req,res){
 
 var currentFreeId=0;
 var rooms={};
+var logedUsers=[];
 
 io.on ('connection', function (socket) {
     var myRoom=null;
@@ -131,6 +143,11 @@ io.on ('connection', function (socket) {
                 callback("Wrong nickname or password.");
                 return;
             }
+            if(logedUsers.includes(nickname)){
+            	callback("You are allready logged.");
+            	return;
+            }
+            logedUsers.push(nickname);
             user={
                 nickname:nickname,
                 id:rows[0].userID
@@ -139,44 +156,100 @@ io.on ('connection', function (socket) {
         });
 	});
 
-    socket.on('createRoom',function(roomName,callback){
-        if(myRoom){
+    socket.on('createRoom',function(roomName,mapID,callback){
+    	if(user===null){
+    		return;
+    	}
+    	if(myRoom){
             callback("You are already in some room.");
             return;
         }
-        var roomIDs=Object.keys(rooms);
-        for(var i=0;i<roomIDs.length;i++){
-            if(rooms[roomIDs[i]].name==roomName){
-                callback("Room with this name already exists.");
+        database.query('SELECT count(*) as pocet FROM rooms WHERE name='+database.escape(roomName), function (error, rows, fields) {
+            if (error) {
+                console.log(error);
+                callback("Internal server error.");
+                return;
+            };
+            if(rows[0].pocet>0){
+            	callback("Room with this name already exists.");
                 return;
             }
-        }
-        rooms[currentFreeId++]={
-            name:roomName,
-            pl1:{
-                nickname:user.nickname,
-                id:user.id,
-                socket:socket
-            },
-            pl2:null,
-            game:null
-        }
-        myRoom=rooms[currentFreeId-1];
-        callback("Success.");
+            database.query('SELECT count(*) as pocet FROM maps WHERE MapID='+database.escape(mapID), function (error, rows, fields) {
+	            if (error) {
+	                console.log(error);
+	                callback("Internal server error.");
+	                return;
+	            };
+	            if(rows[0].pocet==0){
+	            	callback("Map not exists.");
+	                return;
+	            }
+	            database.query('INSERT INTO rooms (name,author,map) VALUES ('+database.escape(roomName)+','+database.escape(user.id)+','+database.escape(mapID)+')', function (error, result) {
+	                if (error) {
+	                    console.log(error);
+	                    res.end("Internal server error.");
+	                    return;
+	                };
+	                myRoom={
+	                	roomID:result.insertId,
+			            name:roomName,
+			            pl1:{
+			                nickname:user.nickname,
+			                id:user.id,
+			                socket:socket
+			            },
+			            pl2:null,
+			            game:null
+			        }
+	                callback("Success.");
+	            });
+	        });    
+        });
     });
 
     socket.on('getRoomsList',function(callback){
-        var roomIDs=Object.keys(rooms);
-        var result=[];
-        for(var i=0;i<roomIDs.length;i++){
-            var id=roomIDs[i];
-            if(rooms[id].pl2){continue;}
-            result.push({
-                id:id,
-                name:rooms[id].name,
-                oponent:rooms[id].pl1.nickname
-            });
-        }
-        callback(result);
+    	if(user===null){
+    		return;
+    	}
+    	database.query(`SELECT r.RoomID as id, r.Name as name, u.Nickname as oponent, 
+    					m.name as map_name, m.image as map_image FROM rooms as r
+    					INNER JOIN users as u ON r.author=u.userID
+    					INNER JOIN maps as m ON r.map=m.mapID`, function (error, rows, fields) {
+            if (error) {
+                console.log(error);
+                callback("Internal server error.");
+                return;
+            };
+            callback(rows);
+        });
+    });
+
+    socket.on("getMapsList",function(callback){
+    	if(user===null){
+    		return;
+    	}
+    	database.query("SELECT * FROM maps", function (error, rows, fields) {
+            if (error) {
+                console.log(error);
+                callback("Internal server error.");
+                return;
+            };
+            callback(rows);
+        });
+    });
+
+    socket.on('disconnect',function(){
+    	if(user===null){
+    		return;
+    	}
+    	if(myRoom!==null){
+	    	database.query("DELETE FROM rooms WHERE RoomID=?",[myRoom.roomID],function(error,result){
+	    		if (error) {
+	                console.log(error);
+	                return;
+	            };
+	    	});
+	    }
+    	logedUsers.splice(logedUsers.indexOf(user.nickname),1);
     });
 });
